@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.2 (unreleased)
+## 0.2.2 (2026-09-30)
 
 - **The assistant can wait for a request.** `studio_next_request` accepts `wait_seconds` (0 to 50, default 0; other
   values are clamped). When nothing is queued it waits for the browser to share a request instead of returning at once,
