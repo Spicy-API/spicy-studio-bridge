@@ -1,0 +1,53 @@
+{
+  "name": "@spicyapi/studio-bridge",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Local, explicitly paired Studio project tools for official MCP clients",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "bin": {
+    "spicyapi-studio-bridge": "dist/src/cli.js",
+    "spicyapi-studio-connect": "delivery/connect.mjs"
+  },
+  "files": [
+    "dist/src",
+    "README.md",
+    "LICENSE",
+    "delivery",
+    "THIRD_PARTY_NOTICES.md",
+    "TESTING.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test dist/test/*.test.js test/*.test.mjs",
+    "check:public": "node scripts/check-public.mjs",
+    "test:public": "node --test test/public.test.mjs",
+    "test:delivery": "npm run build && node --test dist/test/delivery-check.js",
+    "bundle": "npm run build && node scripts/bundle.mjs",
+    "verify": "npm run check:public && npm run typecheck && npm test && npm run test:delivery"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "zod": "4.5.4"
+  },
+  "author": {
+    "name": "SpicyAPI"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Spicy-API/spicy-studio-bridge.git"
+  },
+  "homepage": "https://github.com/Spicy-API/spicy-studio-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/Spicy-API/spicy-studio-bridge/issues"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.0.0",
+    "@types/node": "26.4.0",
+    "typescript": "5.9.3"
+  }
+}

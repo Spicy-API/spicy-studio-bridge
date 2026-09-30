@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "spicy-studio": {
+      "type": "stdio",
+      "command": "/absolute/path/to/node",
+      "args": [
+        "/absolute/path/to/SpicyAPI-Studio-Bridge-0.2.0/runtime/node_modules/@spicyapi/studio-bridge/dist/src/cli.js"
+      ]
+    }
+  }
+}
