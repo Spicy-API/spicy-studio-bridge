@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const VERSION = "0.2.0";
+export const VERSION = "0.2.1";
 export const DEFAULT_PORT = 47321;
 export const DEFAULT_ORIGINS = ["https://spicyapi.ai", "https://www.spicyapi.ai"] as const;
 export const MAX_BODY_BYTES = 512 * 1024;

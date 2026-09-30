@@ -1,4 +1,4 @@
 # Run node configure.mjs to print paths for this computer.
 [mcp_servers.spicy-studio]
 command = "/absolute/path/to/node"
-args = ["/absolute/path/to/SpicyAPI-Studio-Bridge-0.2.0/runtime/node_modules/@spicyapi/studio-bridge/dist/src/cli.js"]
+args = ["/absolute/path/to/SpicyAPI-Studio-Bridge-0.2.1/runtime/node_modules/@spicyapi/studio-bridge/dist/src/cli.js"]

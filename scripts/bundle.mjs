@@ -41,7 +41,7 @@ mkdirSync(target, { recursive: true });
 cpSync(join(root, "delivery"), target, { recursive: true });
 for (const name of ["connect.mjs", "Connect-macOS.command", "Connect-Linux.sh"])
   chmodSync(join(target, name), 0o755);
-for (const name of ["README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "TESTING.md"])
+for (const name of ["README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "TESTING.md", "llms.txt"])
   cpSync(join(root, name), join(target, name));
 cpSync(join(artifactRoot, packed.filename), join(target, packed.filename));
 const runtime = join(target, "runtime");

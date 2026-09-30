@@ -76,7 +76,7 @@ async function fixture(t, client = "codex", initial = {}) {
     "cli.js",
   );
   await mkdir(join(entry, ".."), { recursive: true });
-  await writeFile(entry, "console.log('0.2.0');\n");
+  await writeFile(entry, "console.log('0.2.1');\n");
   await writeFile(fake, fakeSource);
   await writeFile(
     stateFile,

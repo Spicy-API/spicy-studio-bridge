@@ -27,7 +27,7 @@ void test("real HTTP pairing, preflight, authenticated queue, cancellation, and 
     assert.equal(health.status, 200);
     assert.deepEqual(await health.json(), {
       name: "spicyapi-studio-bridge",
-      version: "0.2.0",
+      version: "0.2.1",
       kinds: ["drama", "creative"],
       paired: false,
     });

@@ -1,9 +1,9 @@
 {
   "name": "@spicyapi/studio-bridge",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
-  "description": "Local, explicitly paired Studio project tools for official MCP clients",
+  "description": "Local MCP bridge connecting Spicy Studio with official Codex and Claude Code clients for story drafts, guided sign-in and explicit browser pairing.",
   "license": "MIT",
   "engines": {
     "node": ">=22.13.0"
@@ -18,7 +18,8 @@
     "LICENSE",
     "delivery",
     "THIRD_PARTY_NOTICES.md",
-    "TESTING.md"
+    "TESTING.md",
+    "llms.txt"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -49,5 +50,17 @@
     "@modelcontextprotocol/client": "2.0.0",
     "@types/node": "26.4.0",
     "typescript": "5.9.3"
-  }
+  },
+  "keywords": [
+    "spicyapi",
+    "spicy-studio",
+    "codex",
+    "claude-code",
+    "mcp",
+    "model-context-protocol",
+    "local-mcp",
+    "storyboard",
+    "screenwriting",
+    "creative-workflow"
+  ]
 }

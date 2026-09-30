@@ -1,4 +1,4 @@
-# Studio Bridge 0.2.0 preview verification
+# Studio Bridge 0.2.1 preview verification
 
 Verified on September 30, 2026, using Node.js 22.22.1 on a macOS development host.
 No real assistant login, logout, configuration write, subscription reasoning or model API call was performed.

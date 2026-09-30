@@ -1,13 +1,33 @@
-# SpicyAPI Studio Bridge
+# SpicyAPI Studio Bridge: Codex and Claude Code MCP connection
 
-Use your already signed-in **Codex or Claude Code** to help with a Studio story or creative draft.
-Your assistant runs in its official client. Studio shares only the project and request you select,
-and shows the returned draft for review before you apply it.
+**SpicyAPI Studio Bridge** connects [Spicy Studio](https://spicyapi.ai/create) to the official
+**OpenAI Codex** or **Anthropic Claude Code** client on your computer using the
+[Model Context Protocol (MCP)](https://modelcontextprotocol.io/docs/2026-07-28/getting-started/intro).
+Share a selected story or creative request, receive a text or structured short-drama draft, and
+review it in Studio before applying it. SpicyAPI maintains this MIT-licensed connection tool.
 
-This is the 0.2.0 GitHub preview release. It is not published to npm. It does not run paid
-media generation, proxy model APIs, read assistant credentials, or access your files.
+The guided setup checks the official client's login, offers its account sign-in when needed, and
+registers one local MCP connection. You do not provide a SpicyAPI API key. Your eligible official
+subscription allowance or API billing stays with that client; this bridge does not turn a consumer
+subscription into an API and does not include image or video generation.
 
-Download **SpicyAPI-Studio-Bridge-0.2.0.zip** from the [v0.2.0 GitHub release](https://github.com/Spicy-API/spicy-studio-bridge/releases/tag/v0.2.0), extract it, and start with `START-HERE.md`. Use the named release ZIP, not GitHub's automatically generated source archive. The ZIP includes runtime dependencies and the connection wizard; you do not need to run npm install. Keep the extracted folder in a permanent location.
+## Download and start
+
+Download **SpicyAPI-Studio-Bridge-0.2.1.zip** from the
+[v0.2.1 GitHub preview release](https://github.com/Spicy-API/spicy-studio-bridge/releases/tag/v0.2.1),
+extract the complete folder to a permanent location, and open **START-HERE.md**.
+Choose the named release ZIP, not GitHub's automatic source archive. Runtime dependencies are
+included; **Node.js 22.13+ and an official Codex or Claude Code client are still required**.
+This package is not published to npm.
+
+- macOS: open `Connect-macOS.command`.
+- Windows: open `Connect-Windows.cmd`.
+- Linux: use **Run in Terminal** for `Connect-Linux.sh`, or run `sh Connect-Linux.sh`.
+- Any supported terminal: run `node connect.mjs` in the extracted folder.
+
+Complete setup, reopen your official assistant, and ask it to call `studio_connect`. Pair the code
+in Studio. After sharing a request, send **Process my next Studio request and return the draft for
+review** in the official client. Sharing from the website does not start an assistant turn.
 
 ## Guided setup: no API key or manual configuration
 
@@ -60,7 +80,7 @@ client.
 If you received only the `.tgz`, install that exact file in an empty permanent directory:
 
 ```sh
-npm install --ignore-scripts /absolute/path/spicyapi-studio-bridge-0.2.0.tgz
+npm install --ignore-scripts /absolute/path/spicyapi-studio-bridge-0.2.1.tgz
 node node_modules/@spicyapi/studio-bridge/delivery/connect.mjs
 ```
 
@@ -68,6 +88,74 @@ This resolves pinned dependencies but does not publish anything. Do not use `npx
 MCP startup command. The included `configure.mjs` and `config/` examples are optional manual
 references, not required by the guided flow. The bridge itself is started by the official MCP
 client; there is no separate daemon to start.
+
+## Frequently asked questions
+
+### What can Studio Bridge help me create?
+
+It passes a selected Studio request to your official assistant and returns a reviewable creative
+text or structured short-drama script with characters and scenes. It does not produce images,
+video clips, voice tracks or a finished movie. Generate those separately in Studio with a model
+you choose and its displayed price.
+
+### Can I use my existing ChatGPT or Claude subscription?
+
+Yes, when your official Codex or Claude Code login and plan permit that use. Writing runs in the
+unmodified official client and uses its normal allowance, limits and policies. An API or
+cloud-provider login can instead incur that provider's charges. Studio Bridge adds no SpicyAPI LLM
+charge and promises no free or unlimited model access. The wizard reports the detected login type;
+see the [Codex command reference](https://learn.chatgpt.com/docs/developer-commands?surface=cli) and
+[Claude Code authentication guide](https://code.claude.com/docs/en/authentication).
+
+### Do I need to copy an API key, OAuth token or configuration file?
+
+No API key or manual JSON/TOML edit is required for guided setup. The wizard calls official login
+and MCP configuration commands; authentication stays with the official client. It never reads
+credential files or asks you to paste an OAuth token. Unknown login status is not treated as a
+successful subscription login. Organization or environment settings may still select API billing.
+
+### How is this different from the SpicyAPI API-key MCP server?
+
+Choose the tool based on what the assistant should do:
+
+| Tool | Purpose | Authentication and execution |
+| --- | --- | --- |
+| **Studio Bridge** (this repository) | Return a selected Studio story or creative draft for your review | Official Codex/Claude Code login plus one-use browser pairing; no SpicyAPI API key and no model execution API |
+| **[SpicyAPI MCP](https://github.com/Spicy-API/spicy-mcp)** | Inspect the platform catalog, obtain quotes and create image/video tasks through the SpicyAPI API | A SpicyAPI API key; paid actions require the tool's confirmation flow |
+
+They are separate packages. Installing one does not configure the other.
+
+### Which computers and assistant clients work?
+
+The launchers target macOS, Windows and Linux with Node.js 22.13+ and an official local Codex or
+Claude Code CLI. The Studio browser must run on the same computer and be allowed to reach
+`127.0.0.1:47321`. The ordinary ChatGPT website does not read local Codex configuration, and this
+package does not configure mobile or remote assistant sessions. Windows/Linux desktop login has
+not been tested on physical systems; see [verification limits](TESTING.md).
+
+### Will the website automatically run my assistant or charge for media?
+
+No. After pairing and sharing a request, send the next-request message in your official assistant.
+Review its returned draft before applying it. This bridge has no media generation or billing tool.
+Images and videos require a separate Studio model choice and price confirmation. Its
+[MCP setup uses official local stdio configuration](https://learn.chatgpt.com/docs/extend/mcp?surface=cli),
+not a remote subscription proxy.
+
+### What project data is shared, and does it stay offline?
+
+Only the selected project title/ID and request text are queued in the local bridge, in memory.
+The official assistant receives that text when it retrieves the request; its model may process it
+through the provider's normal service. This is a local connection, not a promise of offline AI.
+The bridge exposes no file-reading tool and does not fetch your Studio history or credentials.
+Other tools in your assistant remain governed by that client's permissions.
+
+### What happens if I cancel, disconnect or cannot pair?
+
+Cancelling prevents a later draft from being accepted; stop the current turn in the official
+assistant as well to stop that client's usage. Disconnecting clears the in-memory shared requests.
+A pairing code is single-use and lasts ten minutes. Get a new code with `studio_connect` and
+`reset: true` after an expired code or lost tab. Browser or organization local-network restrictions
+can block pairing; do not disable browser security. See the troubleshooting steps below.
 
 ## If something does not connect
 
@@ -218,6 +306,7 @@ Checked on September 29–30, 2026:
 - [Codex App Server](https://learn.chatgpt.com/docs/app-server): an official deeper integration
   path, separate from this MCP-only preview. Experimental transports are not enabled here.
 - [Claude Code MCP](https://code.claude.com/docs/en/mcp): official stdio client configuration.
+- [Claude Code authentication](https://code.claude.com/docs/en/authentication): official account, API and organization-controlled authentication choices.
 - [Claude Code legal and compliance](https://code.claude.com/docs/en/legal-and-compliance): users
   authenticate in the unmodified official client. This package does not collect credentials, offer
   Claude.ai sign-in, or operate a subscription request proxy.
@@ -226,3 +315,7 @@ Checked on September 29–30, 2026:
 
 Open-source bridge projects informed the research, but their code was not copied. Software licenses
 alone do not grant access to an assistant subscription or permission to resell it.
+
+Maintained by SpicyAPI. Codex and Claude Code belong to their respective providers. This project
+does not claim provider endorsement. A concise factual index is available in [llms.txt](llms.txt);
+it is documentation for readers and tools, not a guarantee of indexing or search visibility.

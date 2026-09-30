@@ -414,9 +414,9 @@ export async function connectionWizard(
   }
   io.say(`Official ${client === "codex" ? "Codex" : "Claude Code"} CLI detected.`);
   const packageCheck = await call({ command: node, prefix: [] }, [entry, "--version"]);
-  if (packageCheck.error || packageCheck.code !== 0 || !/^0\.2\.0\s*$/.test(packageCheck.stdout)) {
+  if (packageCheck.error || packageCheck.code !== 0 || !/^0\.2\.1\s*$/.test(packageCheck.stdout)) {
     io.say(
-      "The included bridge could not be verified. Restore the complete 0.2.0 delivery folder and try again.",
+      "The included bridge could not be verified. Restore the complete 0.2.1 delivery folder and try again.",
     );
     return { ok: false, reason: "missing_runtime" };
   }

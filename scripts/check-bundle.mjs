@@ -7,9 +7,11 @@ import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
 const folder = resolve(process.argv[2]);
+const version = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
 const entry = join(folder, "runtime/node_modules/@spicyapi/studio-bridge/dist/src/cli.js");
-assert.equal(execFileSync(process.execPath, [entry, "--version"], { encoding: "utf8" }).trim(), "0.2.0");
+assert.equal(execFileSync(process.execPath, [entry, "--version"], { encoding: "utf8" }).trim(), version);
 assert.match(execFileSync(process.execPath, [join(folder, "connect.mjs"), "--help"], { encoding: "utf8" }), /Studio connection wizard/);
+assert.ok(readFileSync(join(folder, "llms.txt"), "utf8").includes(`Version ${version}`));
 for (const name of ["@spicyapi/studio-bridge", "@modelcontextprotocol/server", "@modelcontextprotocol/core", "zod"]) {
   assert.ok(existsSync(join(folder, "runtime/node_modules", name, "LICENSE")));
 }
@@ -40,6 +42,7 @@ try {
     return response.json();
   };
   token = (await request("/v1/pair", "POST", { code: connection.code })).sessionToken;
+  assert.equal((await request("/v1/health")).version, version);
   const draft = await request("/v1/requests", "POST", { kind: "creative", project: { id: "release-demo", title: "DEMO" }, prompt: { system: "Return a draft for review.", user: "DEMO only; no model call." } });
   assert.equal((await call("studio_next_request")).request.id, draft.id);
   await call("studio_submit_result", { id: draft.id, result: { type: "text", text: "Simulated release verification draft." } });

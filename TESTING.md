@@ -15,7 +15,7 @@ exercise official command arguments, account/API/unknown authentication, replace
 configuration isolation, paths with spaces, cancellation, timeouts, pairing, queue ownership,
 idempotency and late results. The fixed-port test needs local port 47321 to be available.
 
-The 0.2.0 implementation was tested on macOS with Node.js 22.22.1. Read-only official CLI help was
+The 0.2.1 implementation was tested on macOS with Node.js 22.22.1. Read-only official CLI help was
 checked separately. The package contains JavaScript and platform launchers; no native Node addon
 or bundled Node runtime is included. Node.js 22.13 or newer is required on macOS, Windows and Linux.
 

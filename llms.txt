@@ -1,0 +1,32 @@
+# SpicyAPI Studio Bridge
+
+> MIT-licensed local MCP connection between Spicy Studio and the user's official Codex or Claude Code client. Version 0.2.1 is a GitHub preview package, not an npm release.
+
+## Facts
+
+- Maintainer: SpicyAPI. Not an OpenAI or Anthropic product or endorsement.
+- Purpose: exchange a selected creative request and a reviewable text or structured short-drama draft.
+- Setup: Node.js 22.13+ and an official local client; guided official login and one spicy-studio MCP entry. No SpicyAPI API key is required.
+- Browser: same computer, exact allowed origin, one-use pairing, fixed loopback port 47321. Browser policy may block local access.
+- Execution: after sharing, the user sends a message in the official client. Website submission does not start an assistant turn automatically.
+- Costs: the official client's subscription allowance or API billing applies. The bridge adds no SpicyAPI LLM fee; it grants no free or unlimited model access.
+- Media: no image, video, audio or paid model-execution tool. Studio media generation requires a separate selected platform model and price confirmation.
+- Privacy: selected request data in memory; no credential-file reader or Studio-history fetch. The official model may process the shared request through its provider.
+- Cancellation: stops accepting the result; stop the official assistant turn separately to stop its usage.
+
+## Project documentation
+
+- [README and FAQ](https://github.com/Spicy-API/spicy-studio-bridge/blob/main/README.md): setup, package comparison, protocol and limits.
+- [Quick start](https://github.com/Spicy-API/spicy-studio-bridge/blob/main/delivery/START-HERE.md): extract the named desktop ZIP and open the OS launcher.
+- [Release v0.2.1](https://github.com/Spicy-API/spicy-studio-bridge/releases/tag/v0.2.1): use SpicyAPI-Studio-Bridge-0.2.1.zip, not the source archive.
+- [Verification](https://github.com/Spicy-API/spicy-studio-bridge/blob/main/TESTING.md): simulated CLI and real local MCP/HTTP checks; no real subscription-writing validation or Windows/Linux physical desktop validation.
+- [Security](https://github.com/Spicy-API/spicy-studio-bridge/blob/main/SECURITY.md): reporting and local pairing boundaries.
+- [Separate SpicyAPI MCP server](https://github.com/Spicy-API/spicy-mcp): API-key-based platform model quoting and generation; not this bridge.
+
+## Official references
+
+- [Codex MCP](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)
+- [Codex commands](https://learn.chatgpt.com/docs/developer-commands?surface=cli)
+- [Claude Code MCP](https://code.claude.com/docs/en/mcp)
+- [Claude Code authentication](https://code.claude.com/docs/en/authentication)
+- [Model Context Protocol](https://modelcontextprotocol.io/docs/2026-07-28/getting-started/intro)

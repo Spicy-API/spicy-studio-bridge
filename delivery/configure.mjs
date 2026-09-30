@@ -21,13 +21,13 @@ const checked = spawnSync(process.execPath, [entry, "--version"], {
   timeout: 10000,
   windowsHide: true,
 });
-if (checked.status !== 0 || checked.stdout.trim() !== "0.2.0") {
+if (checked.status !== 0 || checked.stdout.trim() !== "0.2.1") {
   console.error(
     "The included bridge did not pass its local version check. Restore the delivery folder.",
   );
   process.exit(1);
 }
-console.log("Bridge 0.2.0 is ready. Nothing was installed, connected, or billed.\n");
+console.log("Bridge 0.2.1 is ready. Nothing was installed, connected, or billed.\n");
 console.log("Codex MCP configuration (TOML):\n");
 console.log(
   `[mcp_servers.spicy-studio]\ncommand = ${JSON.stringify(process.execPath)}\nargs = [${JSON.stringify(entry)}]\n`,

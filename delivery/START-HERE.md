@@ -1,6 +1,6 @@
 # Connect your assistant to Spicy Studio
 
-This is the **0.2.0 GitHub preview release**, with a guided connection setup. It has not been published to
+This is the **0.2.1 GitHub preview release**, with a guided connection setup. It has not been published to
 npm. Keep this folder in a permanent location. You do not need an API key or to edit a configuration
 file for the normal setup.
 
@@ -118,7 +118,7 @@ rerun the wizard to finish. It never rewrites all your MCP settings.
 ## Included files
 
 `runtime/` contains the installed bridge and exact runtime dependencies. `connect.mjs` and the three
-launchers run the guided setup. `spicyapi-studio-bridge-0.2.0.tgz` is an alternative local npm
+launchers run the guided setup. `spicyapi-studio-bridge-0.2.1.tgz` is an alternative local npm
 installer, not a second service to run. `SHA256SUMS` covers the package, setup scripts, launchers
 and guides. `configure.mjs` and `config/` remain optional manual references; the wizard is the
 normal route. Runtime dependencies retain their licenses inside `runtime/node_modules/`. See
