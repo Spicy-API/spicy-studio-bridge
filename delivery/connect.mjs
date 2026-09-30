@@ -23,7 +23,21 @@ if (major < 22 || (major === 22 && minor < 13)) {
     const options = parseOptions(process.argv.slice(2));
     if (options.mode === "help") {
       console.log(
-        "Studio connection wizard\n\nnode connect.mjs [--client codex|claude] [--diagnose|--dry-run|--remove]\nAdd --device-auth for Codex's official device-code login fallback.\n\nDefault: check the official client and login, configure only spicy-studio after confirmation where needed, then verify it. No API key, credentials file, or model request is used.\n--diagnose and --dry-run never log in, add, or remove configuration.\n--remove removes only this bridge's user connection and never logs out your account.",
+        [
+          "Studio connection wizard",
+          "",
+          "node connect.mjs [--client codex|claude|cursor|gemini] [--diagnose|--dry-run|--remove]",
+          "Add --device-auth for Codex's official device-code login fallback.",
+          "",
+          "Codex and Claude Code: check the official client and login, configure only spicy-studio through its official",
+          "CLI after confirmation where needed, then verify it.",
+          "Cursor and Gemini CLI: add only the spicy-studio entry to ~/.cursor/mcp.json or ~/.gemini/settings.json,",
+          "keep a backup of the previous file, then verify it.",
+          "No API key, credentials file, or model request is used.",
+          "--diagnose and --dry-run never log in, add, or remove configuration.",
+          "--remove removes only this bridge's connection and never logs out your account.",
+          "For any other app that runs local MCP servers, use: node configure.mjs --client generic",
+        ].join("\n"),
       );
     } else {
       const bundled = fileURLToPath(
@@ -40,7 +54,7 @@ if (major < 22 || (major === 22 && minor < 13)) {
         async choose(question, choices) {
           if (!process.stdin.isTTY || !process.stdout.isTTY)
             throw new Error(
-              "Open this launcher in an interactive terminal. For read-only checks use --client codex --diagnose or --client claude --diagnose.",
+              "Open this launcher in an interactive terminal. For read-only checks use --client <codex|claude|cursor|gemini> --diagnose.",
             );
           if (!terminal) {
             terminal = createInterface({ input: process.stdin, output: process.stdout });

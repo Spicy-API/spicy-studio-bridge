@@ -26,7 +26,18 @@ export class BridgeStore {
     string,
     { id: string | null; body: string | null; expiresAt: number; cancelled: boolean }
   >();
+  /** Pending waitForNext calls. Each entry re-checks the queue when something changes. */
+  private readonly waiters = new Set<() => void>();
   constructor(private readonly now: () => number = Date.now) {}
+
+  /** Number of pending waits; lets tests prove that no waiter or timer is left behind. */
+  get waiting(): number {
+    return this.waiters.size;
+  }
+
+  private wake(): void {
+    for (const waiter of [...this.waiters]) waiter();
+  }
 
   private sweep(): void {
     const now = this.now();
@@ -45,26 +56,29 @@ export class BridgeStore {
     return this.session !== undefined;
   }
 
-  connect(reset = false): { paired: boolean; code?: string; expiresAt?: number } {
+  /**
+   * Issue a short-lived, single-use pairing code.
+   * When a browser is already paired, the code is a replacement: the current browser keeps working until the new
+   * code is entered, and only then is it disconnected. This lets a refreshed Studio page pair again without
+   * weakening anything: codes are still only visible to the assistant host, single-use, expire after ten minutes,
+   * lock after ten wrong attempts, and the new session is bound to the origin that entered the code.
+   * reset=true disconnects the current browser immediately and clears its shared requests.
+   */
+  connect(reset = false): { paired: boolean; code: string; expiresAt: number; replacesExisting?: boolean } {
     this.sweep();
     if (reset) this.disconnect();
-    if (this.session) return { paired: true };
     if (this.pairExpires <= this.now() || this.pairAttempts >= 10 || !this.pairCode) {
       this.pairCode = randomBytes(6).toString("hex").toUpperCase().match(/.{4}/g)!.join("-");
       this.pairExpires = this.now() + PAIR_MS;
       this.pairAttempts = 0;
     }
-    return { paired: false, code: this.pairCode, expiresAt: this.pairExpires };
+    const code = { code: this.pairCode, expiresAt: this.pairExpires };
+    return this.session ? { paired: true, ...code, replacesExisting: true } : { paired: false, ...code };
   }
 
   pair(code: string, origin: string): { sessionToken: string; expiresAt: number } {
     this.sweep();
-    if (
-      this.session ||
-      !this.pairCode ||
-      this.pairExpires <= this.now() ||
-      this.pairAttempts >= 10
-    ) {
+    if (!this.pairCode || this.pairExpires <= this.now() || this.pairAttempts >= 10) {
       throw new BridgeError("pair_expired", "Ask your assistant for a new connection code.", 401);
     }
     this.pairAttempts++;
@@ -75,6 +89,9 @@ export class BridgeStore {
         401,
       );
     }
+    // A replacement code ends the previous browser session and everything it shared.
+    this.requests.clear();
+    this.dedupe.clear();
     this.session = {
       token: randomBytes(32).toString("base64url"),
       origin,
@@ -82,6 +99,7 @@ export class BridgeStore {
     };
     this.pairCode = "";
     this.pairExpires = 0;
+    this.pairAttempts = 0;
     return { sessionToken: this.session.token, expiresAt: this.session.expiresAt };
   }
 
@@ -99,6 +117,9 @@ export class BridgeStore {
     this.pairAttempts = 0;
     this.requests.clear();
     this.dedupe.clear();
+    // Waiting assistant calls end now with a not_paired error instead of waiting for a browser that is gone.
+    // Closing the local server on shutdown also disconnects, so no wait timer outlives the process.
+    this.wake();
   }
 
   create(value: unknown, key: string): CreativeRequest {
@@ -145,7 +166,10 @@ export class BridgeStore {
     };
     this.requests.set(request.id, request);
     this.dedupe.set(key, { id: request.id, body, expiresAt: request.expiresAt, cancelled: false });
-    return structuredClone(request);
+    // Copy first so the browser always receives the queued state, even when a waiting assistant claims it at once.
+    const created = structuredClone(request);
+    this.wake();
+    return created;
   }
 
   private requireSession(): void {
@@ -178,6 +202,53 @@ export class BridgeStore {
     request.status = "working";
     request.updatedAt = this.now();
     return structuredClone(request);
+  }
+
+  /**
+   * Like next(), but when nothing is queued it waits up to waitMs for the browser to share a request.
+   * There is no polling: the wait is woken by create() and disconnect(), and ends on timeout or when signal aborts.
+   * Every exit path removes the waiter and clears its timer.
+   */
+  async waitForNext(waitMs: number, signal?: AbortSignal): Promise<CreativeRequest | null> {
+    const ready = this.next();
+    if (ready || waitMs <= 0 || signal?.aborted) return ready;
+    const claimed = await new Promise<CreativeRequest | null>((resolve, reject) => {
+      let done = false;
+      const finish = (value: CreativeRequest | null, error?: unknown) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        this.waiters.delete(wakeUp);
+        signal?.removeEventListener("abort", onAbort);
+        if (error === undefined) resolve(value);
+        else reject(error instanceof Error ? error : new Error(String(error)));
+      };
+      // Another waiter may win the same request; then this one keeps waiting.
+      const check = (final = false) => {
+        if (done) return;
+        try {
+          const request = this.next();
+          if (request || final) finish(request);
+        } catch (error) {
+          finish(null, error);
+        }
+      };
+      const wakeUp = () => check();
+      const onAbort = () => finish(null);
+      const timer = setTimeout(() => check(true), waitMs);
+      this.waiters.add(wakeUp);
+      signal?.addEventListener("abort", onAbort, { once: true });
+    });
+    // A cancelled call never delivers its result, so put the request back instead of leaving it working forever.
+    if (claimed && signal?.aborted) {
+      const request = this.requests.get(claimed.id);
+      if (request?.status === "working" && request.updatedAt === claimed.updatedAt) {
+        request.status = "queued";
+        request.updatedAt = this.now();
+      }
+      return null;
+    }
+    return claimed;
   }
 
   finish(id: string, value: unknown): CreativeRequest {

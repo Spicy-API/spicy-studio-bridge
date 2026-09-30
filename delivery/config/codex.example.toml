@@ -1,4 +1,8 @@
 # Run node configure.mjs to print paths for this computer.
+# default_tools_approval_mode applies to this entry only. "approve" lets non-interactive runs (codex exec) call the
+# Studio tools without an approval prompt; use "prompt" to be asked before each call. It does not change your global
+# approval policy.
 [mcp_servers.spicy-studio]
 command = "/absolute/path/to/node"
-args = ["/absolute/path/to/SpicyAPI-Studio-Bridge-0.2.1/runtime/node_modules/@spicyapi/studio-bridge/dist/src/cli.js"]
+args = ["/absolute/path/to/SpicyAPI-Studio-Bridge-0.2.2/runtime/node_modules/@spicyapi/studio-bridge/dist/src/cli.js"]
+default_tools_approval_mode = "approve"

@@ -1,9 +1,9 @@
 {
   "name": "@spicyapi/studio-bridge",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
-  "description": "Local MCP bridge connecting Spicy Studio with official Codex and Claude Code clients for story drafts, guided sign-in and explicit browser pairing.",
+  "description": "Local MCP bridge connecting Spicy Studio with Codex, Claude Code, Cursor, Gemini CLI or any local stdio MCP client for story drafts, guided setup and explicit browser pairing.",
   "license": "MIT",
   "engines": {
     "node": ">=22.13.0"
@@ -19,7 +19,8 @@
     "delivery",
     "THIRD_PARTY_NOTICES.md",
     "TESTING.md",
-    "llms.txt"
+    "llms.txt",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -56,6 +57,8 @@
     "spicy-studio",
     "codex",
     "claude-code",
+    "gemini-cli",
+    "cursor",
     "mcp",
     "model-context-protocol",
     "local-mcp",

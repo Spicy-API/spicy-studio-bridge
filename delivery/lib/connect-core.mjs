@@ -1,17 +1,47 @@
-import { access, realpath } from "node:fs/promises";
-import { constants } from "node:fs";
+import { access, copyFile, mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { constants, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
-import { delimiter, dirname, isAbsolute, join } from "node:path";
+import { delimiter, dirname, isAbsolute, join, normalize, resolve } from "node:path";
 import { homedir } from "node:os";
 import { stripVTControlCharacters as stripAnsi } from "node:util";
 import { setTimeout, clearTimeout } from "node:timers";
 
 export const SERVER_NAME = "spicy-studio";
+/** The bridge version this delivery folder ships. Keep in sync with package.json and src/schema.ts. */
+export const BRIDGE_VERSION = "0.2.2";
 export const INSTALL_URLS = {
   node: "https://nodejs.org/en/download",
   codex: "https://learn.chatgpt.com/docs/developer-commands?surface=cli",
   claude: "https://code.claude.com/docs/en/setup",
 };
+/** Clients configured through their official CLI (mcp add/get/remove). */
+export const CLI_CLIENTS = ["codex", "claude"];
+/**
+ * Clients configured by adding one entry to their documented settings file.
+ * Cursor (editor and cursor-agent) reads ~/.cursor/mcp.json; cursor-agent has no "mcp add" command.
+ * Gemini CLI reads ~/.gemini/settings.json.
+ */
+export const FILE_CLIENTS = {
+  cursor: {
+    name: "Cursor",
+    path: (home) => join(home, ".cursor", "mcp.json"),
+    restart: "Restart Cursor, or start a new cursor-agent session. You can check the connection with: cursor-agent mcp list",
+  },
+  gemini: {
+    name: "Gemini CLI",
+    path: (home) => join(home, ".gemini", "settings.json"),
+    restart: "Start a new gemini session. You can check the connection with /mcp inside Gemini CLI.",
+  },
+};
+export const CLIENTS = [...CLI_CLIENTS, ...Object.keys(FILE_CLIENTS)];
+/**
+ * Codex setting on this bridge's own [mcp_servers.spicy-studio] table. Without it, non-interactive runs such as
+ * codex exec reject every Studio tool call ("requires approval, but approval policy is never"). Codex accepts
+ * auto, prompt, writes or approve, and refuses to load config.toml with any other value.
+ */
+export const CODEX_APPROVAL_KEY = "default_tools_approval_mode";
+export const CODEX_APPROVAL_VALUE = "approve";
+const CLIENT_NAMES = { codex: "Codex", claude: "Claude Code", cursor: "Cursor", gemini: "Gemini CLI" };
 
 export function parseOptions(args) {
   const options = { mode: "connect", client: undefined, deviceAuth: false };
@@ -19,8 +49,8 @@ export function parseOptions(args) {
     const arg = args[i];
     if (arg === "--client") {
       const value = args[++i];
-      if (value !== "codex" && value !== "claude")
-        throw new Error("Choose --client codex or --client claude.");
+      if (!CLIENTS.includes(value))
+        throw new Error("Choose --client codex, claude, cursor or gemini.");
       options.client = value;
     } else if (["--diagnose", "--dry-run", "--remove", "--help"].includes(arg)) {
       if (options.mode !== "connect")
@@ -29,9 +59,33 @@ export function parseOptions(args) {
     } else if (arg === "--device-auth") options.deviceAuth = true;
     else throw new Error("Unknown option. Run node connect.mjs --help.");
   }
-  if (options.deviceAuth && options.client === "claude")
+  if (options.deviceAuth && options.client && options.client !== "codex")
     throw new Error("--device-auth is only available with Codex.");
   return options;
+}
+
+/**
+ * The Codex CLI bundled inside a desktop app. Newer ChatGPT desktop builds ship it under
+ * Contents/Resources/codex-cli, and codex-package.json names the entrypoint; older builds used Resources/codex.
+ */
+export function bundledCodexCandidates(applications, readText = (path) => readFileSync(path, "utf8")) {
+  const candidates = [];
+  for (const root of applications) {
+    for (const app of ["ChatGPT.app", "Codex.app"]) {
+      const resources = join(root, app, "Contents", "Resources");
+      const bundle = join(resources, "codex-cli");
+      try {
+        const entrypoint = JSON.parse(readText(join(bundle, "codex-package.json"))).entrypoint;
+        const resolved = typeof entrypoint === "string" && !isAbsolute(entrypoint) ? normalize(join(bundle, entrypoint)) : null;
+        // Only accept an entrypoint that stays inside the bundle folder.
+        if (resolved && resolved.startsWith(bundle + (bundle.endsWith("/") ? "" : "/"))) candidates.push(resolved);
+      } catch {
+        /* No package manifest in this app. */
+      }
+      candidates.push(join(bundle, "bin", "codex"), join(resources, "codex"));
+    }
+  }
+  return candidates;
 }
 
 export function cliCandidates(
@@ -41,6 +95,8 @@ export function cliCandidates(
     platform = process.platform,
     home = homedir(),
     node = process.execPath,
+    applications = ["/Applications", join(home, "Applications")],
+    readText,
   } = {},
 ) {
   const paths = (env.PATH ?? env.Path ?? "")
@@ -56,12 +112,7 @@ export function cliCandidates(
   const names = platform === "win32" ? [`${client}.exe`, `${client}.cmd`] : [client];
   const candidates = directories.flatMap((directory) => names.map((name) => join(directory, name)));
   if (platform === "darwin" && client === "codex")
-    candidates.push(
-      "/Applications/Codex.app/Contents/Resources/codex",
-      "/Applications/ChatGPT.app/Contents/Resources/codex",
-      join(home, "Applications", "Codex.app", "Contents", "Resources", "codex"),
-      join(home, "Applications", "ChatGPT.app", "Contents", "Resources", "codex"),
-    );
+    candidates.push(...bundledCodexCandidates(applications, readText));
   return [...new Set(candidates)];
 }
 
@@ -234,6 +285,28 @@ export function authStatus(client, result) {
   return "unknown";
 }
 
+/**
+ * True only when "claude mcp get" lists at least one environment variable.
+ * Claude Code 2.1.x prints an empty "Environment:" heading for entries saved with env: {},
+ * followed by a blank line and a "To remove this server" hint; that is not a conflict.
+ */
+export function claudeHasEnvironment(output) {
+  const lines = output.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index++) {
+    const heading = /^(\s*)Environment(?: variables)?:[ \t]*(.*)$/i.exec(lines[index]);
+    if (!heading) continue;
+    if (heading[2].trim()) return true;
+    const indent = heading[1].length;
+    for (let next = index + 1; next < lines.length; next++) {
+      const line = lines[next];
+      if (!line.trim()) break;
+      if (line.length - line.trimStart().length <= indent) break;
+      if (/^\s*[^\s=]+=/.test(line)) return true;
+    }
+  }
+  return false;
+}
+
 export function configStatus(client, result, expected) {
   if (result.error) return { kind: "unknown" };
   const output = stripAnsi(`${result.stdout}\n${result.stderr}`);
@@ -292,9 +365,7 @@ export function configStatus(client, result, expected) {
       return { kind: "conflict", own: false, scope };
     // Our server has exactly one path argument. Do not split paths containing spaces.
     args = [argumentLine];
-    clean = !/Environment(?: variables)?:\s*\S|Status:.*(?:disabled|pending approval)/i.test(
-      output,
-    );
+    clean = !claudeHasEnvironment(output) && !/Status:.*(?:disabled|pending approval)/i.test(output);
   }
   const own =
     /(?:^|[\\/])@spicyapi[\\/]studio-bridge[\\/]dist[\\/]src[\\/]cli\.js$/.test(args[0] ?? "") &&
@@ -339,20 +410,24 @@ export async function connectionWizard(
     io,
     detect = detectCli,
     run = runCommand,
+    home = homedir(),
   } = {},
 ) {
   const client =
     options.client ??
     (await io
-      .choose("Which official assistant do you use?", [
+      .choose("Which assistant app do you use?", [
         "Codex (ChatGPT account)",
         "Claude Code (Claude account)",
+        "Cursor (editor or cursor-agent)",
+        "Gemini CLI",
         "Cancel",
       ])
-      .then((value) => ["codex", "claude"][value]));
+      .then((value) => CLIENTS[value]));
   if (!client) return { ok: false, reason: "cancelled" };
   if (options.deviceAuth && client !== "codex")
     throw new Error("--device-auth is only available with Codex.");
+  if (FILE_CLIENTS[client]) return fileWizard(client, options, { entry, node, cwd, env, signal, io, run, home });
   const expected = { node, entry };
   const checkCancelled = () => {
     if (signal?.aborted) throw new Error("cancelled");
@@ -403,7 +478,7 @@ export async function connectionWizard(
     }
     if (!launcher) {
       io.say(
-        `The official ${client === "codex" ? "Codex" : "Claude Code"} CLI was not found or could not be verified. Install it using ${INSTALL_URLS[client]}`,
+        `The official ${CLIENT_NAMES[client]} CLI was not found or could not be verified. Install it using ${INSTALL_URLS[client]}`,
       );
       if (
         options.mode !== "connect" ||
@@ -412,14 +487,8 @@ export async function connectionWizard(
         return { ok: false, reason: "missing_cli" };
     }
   }
-  io.say(`Official ${client === "codex" ? "Codex" : "Claude Code"} CLI detected.`);
-  const packageCheck = await call({ command: node, prefix: [] }, [entry, "--version"]);
-  if (packageCheck.error || packageCheck.code !== 0 || !/^0\.2\.1\s*$/.test(packageCheck.stdout)) {
-    io.say(
-      "The included bridge could not be verified. Restore the complete 0.2.1 delivery folder and try again.",
-    );
-    return { ok: false, reason: "missing_runtime" };
-  }
+  io.say(`Official ${CLIENT_NAMES[client]} CLI detected.`);
+  if (!(await verifyRuntime(call, node, entry, io))) return { ok: false, reason: "missing_runtime" };
   const readConfig = async () =>
     configStatus(client, await call(launcher, getArgs(client)), expected);
   let auth =
@@ -429,12 +498,14 @@ export async function connectionWizard(
   io.say(
     `Official login: ${auth === "account" ? "account login detected; your plan and usage rules still apply" : auth === "api" ? "API or provider billing detected, not a verified subscription login" : auth}.`,
   );
+  const codexConfig = client === "codex" ? codexConfigPath({ env, home, cwd }) : undefined;
   if (["diagnose", "dry-run"].includes(options.mode)) {
     const config = await readConfig();
     io.say(`Studio connection configuration: ${config.kind}.`);
+    if (codexConfig) io.say(`Codex tool approval for ${SERVER_NAME}: ${describeApproval(await readCodexApproval(codexConfig))}.`);
     io.say(
       options.mode === "dry-run"
-        ? "Dry run only. A normal run offers official account login if needed, asks before replacing an existing connection, writes only spicy-studio through the official CLI, then verifies it. No login or configuration was changed."
+        ? `Dry run only. A normal run offers official account login if needed, asks before replacing an existing connection, writes only spicy-studio through the official CLI, then verifies it.${codexConfig ? ` For Codex it also sets ${CODEX_APPROVAL_KEY} = "${CODEX_APPROVAL_VALUE}" on that entry only, so codex exec can call the Studio tools.` : ""} No login or configuration was changed.`
         : "Diagnostics only. No login or configuration was changed. No credentials or account details are printed.",
     );
     return {
@@ -560,6 +631,9 @@ export async function connectionWizard(
       }
     }
   }
+  // codex mcp add rewrites the whole entry, so remember an approval setting the user already chose for it.
+  const keepApproval =
+    codexConfig && config.kind !== "matching" ? approvalValue(await readCodexApproval(codexConfig)) : undefined;
   if (config.kind !== "matching") {
     const added = await call(launcher, addArgs(client, expected));
     // A timeout can still have saved the entry. Read it back before suggesting another write.
@@ -571,17 +645,350 @@ export async function connectionWizard(
       return { ok: false, reason: added.error ?? "config_failed" };
     }
   }
+  const approval = codexConfig
+    ? await ensureCodexApproval(codexConfig, {
+        keep: keepApproval,
+        io,
+        verify: async () => (await readConfig()).kind === "matching",
+      })
+    : undefined;
   io.say(
     "Studio connection configuration verified. Restart or reconnect your official assistant. Signing in is not the same as pairing the website.",
   );
+  sayNextSteps(io);
+  return { ok: true, auth, ...(approval ? { approval } : {}) };
+}
+
+/** What to do after setup; identical for every client so the website instructions always match. */
+function sayNextSteps(io) {
+  io.say(`In that assistant, send: "${CONNECT_MESSAGE}"`);
+  io.say(`Back in Studio on this computer, open "Connect your AI" and enter the code. Then send: "${NEXT_MESSAGE}"`);
   io.say(
-    'In that assistant, send: "Use studio_connect to connect my Spicy Studio browser. Show me the pairing code."',
+    "Only one assistant session can hold the Studio connection at a time. If a tool says another session is connected, use that session or close it.",
   );
   io.say(
-    'Back in Studio on this computer, choose "My Codex or Claude Code" and enter the code. After sharing a request, send: "Process my next Studio request and return the draft for review."',
+    "Review drafts before applying them. This bridge adds no SpicyAPI charge. Your assistant app uses its own subscription allowance or API billing; paid images/videos require separate Studio confirmation.",
   );
+}
+
+export const CONNECT_MESSAGE =
+  "Call the Spicy Studio tool studio_connect with reset set to true, then show me the new pairing code.";
+/** Works before or after the request is shared: the assistant waits for it with wait_seconds instead of giving up. */
+export const NEXT_MESSAGE =
+  "Process my next Spicy Studio request and return the draft for review. If none is waiting yet, call studio_next_request with wait_seconds set to 30 and keep calling it until one arrives.";
+
+async function verifyRuntime(call, node, entry, io) {
+  const packageCheck = await call({ command: node, prefix: [] }, [entry, "--version"]);
+  if (packageCheck.error || packageCheck.code !== 0 || packageCheck.stdout.trim() !== BRIDGE_VERSION) {
+    io.say(
+      `The included bridge could not be verified. Restore the complete ${BRIDGE_VERSION} delivery folder and try again.`,
+    );
+    return false;
+  }
+  return true;
+}
+
+const OWN_ENTRY = /(?:^|[\\/])@spicyapi[\\/]studio-bridge[\\/]dist[\\/]src[\\/]cli\.js$/;
+
+/** Classify our entry inside a parsed settings file: missing, matching, or conflict (and whether it is ours). */
+export function fileEntryStatus(settings, expected) {
+  const servers = settings?.mcpServers;
+  const value = servers && typeof servers === "object" && !Array.isArray(servers) ? servers[SERVER_NAME] : undefined;
+  if (value === undefined) return { kind: "missing" };
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { kind: "conflict", own: false };
+  const args = Array.isArray(value.args) ? value.args : [];
+  const own = typeof value.command === "string" && args.length === 1 && OWN_ENTRY.test(String(args[0] ?? ""));
+  const extra = Object.keys(value).filter((key) => !["command", "args", "type"].includes(key));
+  const same =
+    value.command === expected.node &&
+    args.length === 1 &&
+    args[0] === expected.entry &&
+    (value.type === undefined || value.type === "stdio") &&
+    extra.length === 0;
+  return { kind: same ? "matching" : "conflict", own: own || same };
+}
+
+/** Read a JSON settings file. Missing file = empty settings. Anything that is not a plain JSON object is refused. */
+export async function readSettings(path) {
+  let text;
+  try {
+    text = await readFile(path, "utf8");
+  } catch (error) {
+    if (error && error.code === "ENOENT") return { exists: false, settings: {} };
+    return { exists: true, error: "unreadable" };
+  }
+  if (!text.trim()) return { exists: true, settings: {} };
+  try {
+    const settings = JSON.parse(text);
+    if (!settings || typeof settings !== "object" || Array.isArray(settings)) return { exists: true, error: "not_object" };
+    if (settings.mcpServers !== undefined && (typeof settings.mcpServers !== "object" || Array.isArray(settings.mcpServers)))
+      return { exists: true, error: "not_object" };
+    return { exists: true, settings };
+  } catch {
+    return { exists: true, error: "not_json" };
+  }
+}
+
+/**
+ * Replace a file atomically, first keeping a timestamped backup of the previous version (unless backup is false).
+ * A symlinked settings file is written through its link, so dotfile setups keep their link.
+ */
+export async function writeTextFile(path, text, { exists, backup: keepBackup = true, now = Date.now } = {}) {
+  const target = exists ? await realpath(path) : path;
+  await mkdir(dirname(target), { recursive: true });
+  let mode = 0o600;
+  let backup = null;
+  if (exists) {
+    mode = (await stat(target)).mode & 0o777;
+    if (keepBackup) {
+      backup = `${target}.spicy-studio-backup-${now()}`;
+      await copyFile(target, backup);
+    }
+  }
+  const temporary = `${target}.spicy-studio-tmp-${process.pid}`;
+  try {
+    await writeFile(temporary, text, { mode });
+    await rename(temporary, target);
+  } catch (error) {
+    await rm(temporary, { force: true });
+    throw error;
+  }
+  return backup;
+}
+
+/** Replace a JSON settings file atomically after keeping a timestamped backup of the previous version. */
+export function writeSettings(path, settings, options = {}) {
+  return writeTextFile(path, JSON.stringify(settings, null, 2) + "\n", options);
+}
+
+export function connectionSnippet(node, entry) {
+  return JSON.stringify({ mcpServers: { [SERVER_NAME]: { command: node, args: [entry] } } }, null, 2);
+}
+
+/** The Codex config.toml entry, with tool approval scoped to this server only. JSON strings are valid TOML strings. */
+export function codexConfigSnippet(node, entry) {
+  return [
+    `[mcp_servers.${SERVER_NAME}]`,
+    `command = ${JSON.stringify(node)}`,
+    `args = [${JSON.stringify(entry)}]`,
+    `${CODEX_APPROVAL_KEY} = "${CODEX_APPROVAL_VALUE}"`,
+  ].join("\n");
+}
+
+/** Codex reads config.toml from CODEX_HOME, or ~/.codex when it is not set. */
+export function codexConfigPath({ env = process.env, home = homedir(), cwd = process.cwd() } = {}) {
+  return env.CODEX_HOME ? join(resolve(cwd, env.CODEX_HOME), "config.toml") : join(home, ".codex", "config.toml");
+}
+
+const TOML_HEADER = /^\s*\[{1,2}[^[\]]+\]{1,2}\s*(?:#.*)?$/;
+const OWN_TABLE = new RegExp(String.raw`^\s*\[\s*mcp_servers\s*\.\s*(?:${SERVER_NAME}|"${SERVER_NAME}"|'${SERVER_NAME}')\s*\]\s*(?:#.*)?$`);
+const APPROVAL_LINE = new RegExp(String.raw`^\s*(["']?)${CODEX_APPROVAL_KEY}\1\s*=\s*(?:"([^"]*)"|'([^']*)'|([^#]*))`);
+
+/** Split TOML text into lines and mark the lines that start inside a multi-line string; those are never keys. */
+function tomlLines(text) {
+  let open = null;
+  return text.split(/\r?\n/).map((line) => {
+    const inside = open !== null;
+    for (let i = 0; i < line.length; ) {
+      if (open) {
+        const end = line.indexOf(open, i);
+        if (end < 0) break;
+        i = end + 3;
+        open = null;
+      } else if (line.startsWith('"""', i) || line.startsWith("'''", i)) {
+        open = line.slice(i, i + 3);
+        i += 3;
+      } else if (line[i] === "#") break;
+      else if (line[i] === '"') {
+        for (i++; i < line.length && line[i] !== '"'; ) i += line[i] === "\\" ? 2 : 1;
+        i++;
+      } else if (line[i] === "'") {
+        const end = line.indexOf("'", i + 1);
+        i = end < 0 ? line.length : end + 1;
+      } else i++;
+    }
+    return { text: line, inside };
+  });
+}
+
+/**
+ * Read this bridge's tool approval setting from Codex config.toml text. Kinds: "set" (with value), "missing"
+ * (our table exists without the key; insertAt is where to add it), "no-entry" (no [mcp_servers.spicy-studio] table)
+ * and "unsupported" (duplicate tables or keys: never edit it automatically).
+ */
+export function codexApprovalStatus(text) {
+  const lines = tomlLines(text);
+  const headers = [];
+  lines.forEach((line, index) => {
+    if (!line.inside && TOML_HEADER.test(line.text)) headers.push(index);
+  });
+  const own = headers.filter((index) => OWN_TABLE.test(lines[index].text));
+  if (!own.length) return { kind: "no-entry" };
+  if (own.length > 1) return { kind: "unsupported" };
+  const end = headers.find((index) => index > own[0]) ?? lines.length;
+  let insertAt = own[0] + 1;
+  const found = [];
+  for (let index = own[0] + 1; index < end; index++) {
+    const { text: line, inside } = lines[index];
+    if (!line.trim() || (!inside && /^\s*#/.test(line))) continue;
+    // Insert after the last line that belongs to the table, before any comment that introduces the next one.
+    insertAt = index + 1;
+    const match = inside ? null : APPROVAL_LINE.exec(line);
+    if (match) found.push(match[2] ?? match[3] ?? match[4].trim());
+  }
+  if (found.length > 1) return { kind: "unsupported" };
+  return found.length ? { kind: "set", value: found[0] } : { kind: "missing", insertAt };
+}
+
+/** Add the approval key to our table only. Returns null when the key is already set or the file must not be edited. */
+export function withCodexApproval(text, value = CODEX_APPROVAL_VALUE) {
+  const status = codexApprovalStatus(text);
+  if (status.kind !== "missing") return null;
+  const lines = text.split(/\r?\n/);
+  lines.splice(status.insertAt, 0, `${CODEX_APPROVAL_KEY} = ${JSON.stringify(value)}`);
+  return lines.join(text.includes("\r\n") ? "\r\n" : "\n");
+}
+
+async function readCodexApproval(path) {
+  try {
+    const text = await readFile(path, "utf8");
+    return { exists: true, text, status: codexApprovalStatus(text) };
+  } catch (error) {
+    if (error && error.code === "ENOENT") return { exists: false, text: "", status: { kind: "no-entry" } };
+    return { exists: true, status: { kind: "unsupported" } };
+  }
+}
+
+const approvalValue = (read) => (read.status.kind === "set" ? read.status.value : undefined);
+
+function describeApproval(read) {
+  if (read.status.kind === "set") return `${CODEX_APPROVAL_KEY} = "${read.status.value}"`;
+  if (read.status.kind === "unsupported") return "could not be read safely";
+  return "not set (Codex asks before each Studio tool call, and codex exec rejects them)";
+}
+
+/**
+ * Make codex exec able to call the Studio tools by setting the approval key on our entry only. The user's global
+ * approval policy and every other server stay unchanged. A value the user already chose is kept and reported. If
+ * Codex no longer reads its configuration after the edit (for example an older Codex without this key), the previous
+ * file is restored.
+ */
+async function ensureCodexApproval(path, { keep, io, verify }) {
+  const manual = `To let non-interactive runs (codex exec) use the Studio tools, add this line under [mcp_servers.${SERVER_NAME}] in ${path}: ${CODEX_APPROVAL_KEY} = "${CODEX_APPROVAL_VALUE}"`;
+  const approved = `Codex may run the Studio tools without asking each time, including in codex exec (${CODEX_APPROVAL_KEY} = "${CODEX_APPROVAL_VALUE}" on ${SERVER_NAME} only; your global approval policy is unchanged). Set it to "prompt" to be asked before each call.`;
+  const kept = (value) =>
+    `Your Codex setting ${CODEX_APPROVAL_KEY} = "${value}" for ${SERVER_NAME} was kept. Non-interactive runs (codex exec) need "${CODEX_APPROVAL_VALUE}"; with other values they may reject the Studio tools.`;
+  const current = await readCodexApproval(path);
+  if (current.status.kind === "set") {
+    io.say(current.status.value === CODEX_APPROVAL_VALUE ? approved : kept(current.status.value));
+    return current.status.value;
+  }
+  if (current.status.kind !== "missing") {
+    io.say(`The Studio entry in ${path} could not be edited safely, so it was left unchanged. ${manual}`);
+    return "manual";
+  }
+  const value = keep ?? CODEX_APPROVAL_VALUE;
+  let backup;
+  try {
+    backup = await writeTextFile(path, withCodexApproval(current.text, value), { exists: true });
+  } catch {
+    io.say(`${path} could not be written, so it was left unchanged. ${manual}`);
+    return "manual";
+  }
+  const saved = await readCodexApproval(path);
+  if (approvalValue(saved) !== value || !(await verify())) {
+    await writeTextFile(path, current.text, { exists: true, backup: false });
+    io.say(
+      `Codex did not accept ${CODEX_APPROVAL_KEY} (it may be an older version), so ${path} was restored unchanged. Codex will ask before each Studio tool call, and codex exec rejects them. ${manual} after updating Codex.`,
+    );
+    return "restored";
+  }
+  io.say(`The previous Codex settings were saved as ${backup}.`);
+  io.say(value === CODEX_APPROVAL_VALUE ? approved : kept(value));
+  return value;
+}
+
+/**
+ * Cursor and Gemini CLI: add, verify or remove one entry in the client's own settings file.
+ * Other settings are preserved; the previous file is backed up; files with comments are never rewritten.
+ */
+async function fileWizard(client, options, { entry, node, cwd, env, signal, io, run, home }) {
+  const info = FILE_CLIENTS[client];
+  const path = info.path(home);
+  const expected = { node, entry };
+  const call = async (launcher, args) => {
+    if (signal?.aborted) throw new Error("cancelled");
+    return run(launcher, args, { cwd, env, signal, interactive: false, timeoutMs: 20000 });
+  };
   io.say(
-    "Review drafts before applying them. This bridge adds no SpicyAPI LLM charge. Your official client uses its own subscription allowance or API billing; paid images/videos require separate Studio confirmation.",
+    `Studio Bridge adds one ${SERVER_NAME} entry to ${info.name}'s settings file. No API key is requested; sign in inside ${info.name} as usual.`,
   );
-  return { ok: true, auth };
+  if (!(await verifyRuntime(call, node, entry, io))) return { ok: false, reason: "missing_runtime" };
+  const read = await readSettings(path);
+  if (read.error) {
+    io.say(
+      `${path} is not plain JSON (it may contain comments), so it was not changed. Add this entry to it yourself:`,
+    );
+    io.say(connectionSnippet(node, entry));
+    return { ok: false, reason: "unknown_config" };
+  }
+  let status = fileEntryStatus(read.settings, expected);
+  if (["diagnose", "dry-run"].includes(options.mode)) {
+    io.say(`Studio connection configuration: ${status.kind} (${path}).`);
+    io.say(
+      options.mode === "dry-run"
+        ? "Dry run only. A normal run asks before replacing an existing entry, keeps a backup of the file, and changes nothing else."
+        : "Diagnostics only. No configuration was changed.",
+    );
+    return { ok: status.kind === "matching", reason: "read_only", config: status.kind };
+  }
+  const save = async (settings) => {
+    const backup = await writeSettings(path, settings, { exists: read.exists });
+    if (backup) io.say(`The previous settings were saved as ${backup}.`);
+    const again = await readSettings(path);
+    return again.error ? { kind: "unknown" } : fileEntryStatus(again.settings, expected);
+  };
+  if (options.mode === "remove") {
+    if (status.kind === "missing") {
+      io.say(`No ${SERVER_NAME} entry is configured in ${path}.`);
+      return { ok: true };
+    }
+    if (!status.own) {
+      io.say("This entry belongs to a different connection. It was not removed. Review it in the settings file.");
+      return { ok: false, reason: "not_owned" };
+    }
+    const confirmed = await io.choose(
+      `Remove only the ${SERVER_NAME} entry from ${path}? Everything else in the file stays the same.`,
+      ["Keep connection", "Remove connection"],
+    );
+    if (confirmed !== 1) return { ok: false, reason: "cancelled" };
+    const settings = structuredClone(read.settings);
+    delete settings.mcpServers[SERVER_NAME];
+    status = await save(settings);
+    if (status.kind !== "missing") {
+      io.say("Removal could not be verified. Check the settings file.");
+      return { ok: false, reason: "remove_failed" };
+    }
+    io.say(`Studio connection removed. ${info.restart}`);
+    return { ok: true };
+  }
+  if (status.kind === "conflict") {
+    const answer = await io.choose(
+      `A different ${SERVER_NAME} entry already exists in ${path}. Replace only this entry? A backup of the file is kept.`,
+      ["Keep existing entry", `Replace ${SERVER_NAME}`],
+    );
+    if (answer !== 1) return { ok: false, reason: "cancelled" };
+  }
+  if (status.kind !== "matching") {
+    const settings = structuredClone(read.settings);
+    settings.mcpServers = { ...(settings.mcpServers ?? {}), [SERVER_NAME]: { command: node, args: [entry] } };
+    status = await save(settings);
+    if (status.kind !== "matching") {
+      io.say("The connection was not verified. Check the settings file and rerun this wizard.");
+      return { ok: false, reason: "config_failed" };
+    }
+  }
+  io.say(`Studio connection configuration verified in ${path}. ${info.restart}`);
+  sayNextSteps(io);
+  return { ok: true, auth: "not-checked" };
 }

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const VERSION = "0.2.1";
+export const VERSION = "0.2.2";
 export const DEFAULT_PORT = 47321;
 export const DEFAULT_ORIGINS = ["https://spicyapi.ai", "https://www.spicyapi.ai"] as const;
 export const MAX_BODY_BYTES = 512 * 1024;
@@ -8,6 +8,14 @@ export const SESSION_MS = 4 * 60 * 60 * 1000;
 export const PAIR_MS = 10 * 60 * 1000;
 export const REQUEST_MS = 30 * 60 * 1000;
 export const MAX_REQUESTS = 20;
+/** Upper bound for studio_next_request wait_seconds; stays below the usual 60-second MCP client tool timeout. */
+export const MAX_WAIT_SECONDS = 50;
+
+/** Clamp a requested wait to whole seconds between 0 and MAX_WAIT_SECONDS. Missing or invalid values mean no wait. */
+export function clampWaitSeconds(value: number | null | undefined): number {
+  if (typeof value !== "number" || Number.isNaN(value)) return 0;
+  return Math.min(MAX_WAIT_SECONDS, Math.max(0, Math.floor(value)));
+}
 
 const text = (max: number, empty = false) =>
   z

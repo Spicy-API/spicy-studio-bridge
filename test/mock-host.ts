@@ -77,7 +77,7 @@ async function main() {
                 version: 1,
                 title: "DEMO — Last Train",
                 logline: "DEMO: Two adults reunite.",
-                style: "Cinematic, non-explicit.",
+                style: "Cinematic, warm light.",
                 characters: [
                   {
                     id: "c1",
