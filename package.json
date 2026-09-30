@@ -1,7 +1,6 @@
 {
   "name": "@spicyapi/studio-bridge",
   "version": "0.2.2",
-  "private": true,
   "type": "module",
   "description": "Local MCP bridge connecting Spicy Studio with Codex, Claude Code, Cursor, Gemini CLI or any local stdio MCP client for story drafts, guided setup and explicit browser pairing.",
   "license": "MIT",
@@ -30,7 +29,8 @@
     "test:public": "node --test test/public.test.mjs",
     "test:delivery": "npm run build && node --test dist/test/delivery-check.js",
     "bundle": "npm run build && node scripts/bundle.mjs",
-    "verify": "npm run check:public && npm run typecheck && npm test && npm run test:delivery"
+    "verify": "npm run check:public && npm run typecheck && npm test && npm run test:delivery",
+    "prepublishOnly": "node -e \"if (process.env.GITHUB_ACTIONS !== 'true') { console.error('Publish only from the Release to npm workflow (npm trusted publishing).'); process.exit(1); }\""
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.0.0",
@@ -65,5 +65,8 @@
     "storyboard",
     "screenwriting",
     "creative-workflow"
-  ]
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
 }

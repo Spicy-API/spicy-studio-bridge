@@ -1,0 +1,45 @@
+name: Release to npm
+
+# Published through npm trusted publishing (OIDC): the identity comes from this workflow running in
+# this repository, so no long-lived token is needed once the package exists, and npm attaches a
+# provenance attestation automatically.
+#
+# First release only: npm can configure a trusted publisher only for a package that already exists.
+# For that one run, an npm automation token may be stored as the NPM_TOKEN secret of the
+# npm-release environment; remove it after the trusted publisher is configured on npmjs.com.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    environment: npm-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      # Trusted publishing needs npm 11.5.1 or newer; Node 22 ships npm 10.x.
+      - run: npm install -g npm@latest
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run verify
+      # Skip when the version already exists, so re-running this workflow is safe.
+      - name: Publish if this version is new
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "$NAME@$VERSION" version --silent > /dev/null 2>&1; then
+            echo "Skipping $NAME@$VERSION: already published."
+          else
+            echo "Publishing $NAME@$VERSION..."
+            npm publish --access public
+          fi
